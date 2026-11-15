@@ -1,48 +1,91 @@
-# Backend
+# Backend development baseline
 
-Minimal NestJS technical baseline for Continius Integration. It exposes `GET /health`, which returns exactly:
+This repository provides the continuous integration NestJS backend baseline. It exposes only `GET /health`, which returns exactly:
 
 ```json
 {"status":"ok"}
 ```
 
-## Run with Docker Compose
+Docker Compose is the supported path for development and verification. A fork can be developed without a host Node.js or npm installation; the host needs Git, Docker Engine, and Docker Compose v2. This is a baseline, not a guarantee that every future regression or product integration is covered.
 
-Docker Compose is the primary development and verification path. It uses the pinned `node:22.23.5-bookworm-slim` image and does not read a local `.env` file.
+## Quick start from a fork
+
+1. Fork this repository in GitHub, then clone **your fork** and retain its `origin` remote.
+2. Add the shared repository as `upstream`, create a worktree and branch, then enter that worktree:
+
+   ```bash
+   git clone https://github.com/<your-account>/backend.git
+   cd backend
+   git remote add upstream https://github.com/statick88/backend.git
+   git fetch upstream
+   git worktree add ../backend-health -b chore/health upstream/main
+   cd ../backend-health
+   ```
+
+   Replace `<your-account>` with your GitHub account.
+
+3. Disable implicit `.env` loading and start the development container:
+
+   ```bash
+   export COMPOSE_DISABLE_ENV_FILE=1
+   docker compose up -d --build
+   ```
+
+The default health URL is <http://127.0.0.1:3000/health>. Check readiness and inspect a bounded log tail when it does not become healthy:
 
 ```bash
-COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build backend
+docker compose ps backend
+docker compose logs --no-color --tail 80 backend
+curl --fail --silent --show-error http://127.0.0.1:3000/health
 ```
 
-The service listens on `http://127.0.0.1:3000`; `GET /health` returns the status shown above. The runtime image is a development image and runs `npm run start:dev`.
+The curl response is exactly `{"status":"ok"}`.
 
-Run the full check suite in a clean container:
+## Development behavior
+
+The `backend` service runs `npm run start:dev`. Only `./src` is mounted into the container, and it is mounted read-only at `/app/src`; source edits trigger Nest's watch reload without mounting the repository root, Git data, local dependencies, credentials, or `.env` files. Dependencies come from the image built from the committed lockfile.
+
+When dependencies or Docker build inputs change, rebuild the image:
 
 ```bash
-COMPOSE_DISABLE_ENV_FILE=1 docker compose run --build --rm --no-deps backend-check
+COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build backend
 ```
 
-The check container installs dependencies from the committed lockfile and runs linting, type-checking, tests, and the Nest build. It has no bind mounts or persistent volumes.
+## Worktrees and port overrides
 
-## Optional local development
-
-For local Node.js development, use Node.js 22 LTS (see `.nvmrc`) and npm:
+Compose project names and host ports must differ when two worktrees run simultaneously. Keep the container port at 3000 and assign a unique loopback host port and project name for each worktree:
 
 ```bash
-npm ci
-npm run start:dev
-npm run lint
-npm run typecheck
-npm run test:ci
-npm run build
+COMPOSE_DISABLE_ENV_FILE=1 BACKEND_PORT=13001 docker compose -p backend-feature-a up -d --build
+COMPOSE_DISABLE_ENV_FILE=1 BACKEND_PORT=13002 docker compose -p backend-feature-b up -d --build
 ```
 
-`npm run start:dev` starts the service on port 3000 by default. Set `PORT` to choose another port.
+Their health URLs are `http://127.0.0.1:13001/health` and `http://127.0.0.1:13002/health`. Stop only the project you started:
 
-## Continuous integration
+```bash
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -p backend-feature-a down --remove-orphans
+```
 
-`.github/workflows/ci.yml` runs the Docker Compose check for every pull request, pushes to `main`, and manual dispatches. The workflow has read-only repository contents permission, a 15-minute timeout, and cancels superseded runs for the same workflow/ref.
+## Verification
 
-CI starts only after this workflow is published to GitHub. Blocking merges also requires repository administrators to configure the CI status check as a required branch-protection/ruleset check separately; this repository configuration is not changed here.
+Validate the Compose file and run the same immutable container checks used by CI:
 
-No database or business-feature configuration is included in this technical baseline.
+```bash
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml config --quiet
+python3 -m unittest tests/test_compose_contract.py
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml run --build --rm --no-deps backend-check
+```
+
+`backend-check` has no host mounts. It installs from `package-lock.json` inside the image and runs ESLint, TypeScript type checks, Jest's HTTP health test, and the Nest build.
+
+## Pull requests and CI
+
+Open pull requests from branches in your fork to the upstream repository's `main` branch and link the relevant issue. Fork users need permission to read the private upstream repository when it is private, plus the fork and pull-request rights granted by the repository owner.
+
+The workflow is defined for pull requests, pushes to `main`, and manual dispatch. It validates Compose configuration, tests the public Compose contract, runs the full containerized check suite, starts the runtime with `--wait --wait-timeout 180`, probes the exact health response, prints bounded service logs on failure, and always tears down its scoped Compose project. It uses read-only repository permissions and does not use secrets or write tokens.
+
+CI becomes active only after this workflow is published to GitHub. Configuring a CI status check as a required merge check is a separate repository branch-protection or ruleset decision. The current sole maintainer does not need to require another reviewer.
+
+Project tracking: <https://github.com/users/statick88/projects/9>.
+
+No database, authentication, business APIs, migrations, or other product integrations are configured by this baseline.

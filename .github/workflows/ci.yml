@@ -20,5 +20,29 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Validate Compose configuration
+        run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml config --quiet
+      - name: Test Compose development contract
+        run: python3 -m unittest tests/test_compose_contract.py
       - name: Run containerized checks
         run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml run --build --rm --no-deps backend-check
+      - name: Start and probe runtime
+        env:
+          COMPOSE_PROJECT_NAME: backend-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          BACKEND_PORT: "13000"
+        run: |
+          set -eu
+          COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml up --build --wait --wait-timeout 180 backend
+          test "$(curl --fail --silent --show-error http://127.0.0.1:13000/health)" = '{"status":"ok"}'
+      - name: Show runtime logs on failure
+        if: failure()
+        env:
+          COMPOSE_PROJECT_NAME: backend-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml logs --no-color --tail 80 backend
+      - name: Stop runtime
+        if: always()
+        env:
+          COMPOSE_PROJECT_NAME: backend-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml down --remove-orphans
