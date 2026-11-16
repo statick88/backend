@@ -1,74 +1,99 @@
 # Backend development baseline
 
-This repository provides the continuous integration NestJS backend baseline. It exposes only `GET /health`, which returns exactly:
+This repository provides the NestJS backend baseline. It exposes only `GET /health`, which returns exactly:
 
 ```json
 {"status":"ok"}
 ```
 
-Docker Compose is the supported path for development and verification. A fork can be developed without a host Node.js or npm installation; the host needs Git, Docker Engine, and Docker Compose v2. This is a baseline, not a guarantee that every future regression or product integration is covered.
+It has no API wiring between applications, database, authentication, business APIs, migrations, or other product integrations.
 
-## Quick start from a fork
+## Team stack: three sibling repositories
 
-1. Fork this repository in GitHub, then clone **your fork** and retain its `origin` remote.
-2. Add the shared repository as `upstream`, create a worktree and branch, then enter that worktree:
+The coordinated stack needs three published repositories checked out as siblings: `frontend`, `backend`, and `ai-service`. The versioned entrypoint is `backend/compose.stack.yaml`; it includes each repository's own `compose.yaml`, so every build context and read-only source mount remains in that repository even when the parent directory is relocated.
 
-   ```bash
-   git clone https://github.com/<your-account>/backend.git
-   cd backend
-   git remote add upstream https://github.com/statick88/backend.git
-   git fetch upstream
-   git worktree add ../backend-health -b chore/health upstream/main
-   cd ../backend-health
-   ```
+> **Publication prerequisite:** all three repositories and their Compose files must be published and clone-reachable before this team path is usable. This local preparation does not claim that the upstream repositories or `main` are ready.
 
-   Replace `<your-account>` with your GitHub account.
-
-3. Disable implicit `.env` loading and start the development container:
-
-   ```bash
-   export COMPOSE_DISABLE_ENV_FILE=1
-   docker compose up -d --build
-   ```
-
-The default health URL is <http://127.0.0.1:3000/health>. Check readiness and inspect a bounded log tail when it does not become healthy:
+Fork or clone each canonical repository, then place the three clones under one parent directory (replace `statick88` with your fork owner when applicable):
 
 ```bash
-docker compose ps backend
-docker compose logs --no-color --tail 80 backend
-curl --fail --silent --show-error http://127.0.0.1:3000/health
+git clone https://github.com/statick88/frontend.git frontend
+git clone https://github.com/statick88/backend.git backend
+git clone https://github.com/statick88/ai-service.git ai-service
+cd backend
+export COMPOSE_DISABLE_ENV_FILE=1
+export COMPOSE_FILE=compose.stack.yaml
+docker compose up -d --build
 ```
 
-The curl response is exactly `{"status":"ok"}`.
+PowerShell uses environment variables with `$env`:
 
-## Development behavior
+```powershell
+cd backend
+$env:COMPOSE_DISABLE_ENV_FILE = "1"
+$env:COMPOSE_FILE = "compose.stack.yaml"
+docker compose up -d --build
+```
 
-The `backend` service runs `npm run start:dev`. Only `./src` is mounted into the container, and it is mounted read-only at `/app/src`; source edits trigger Nest's watch reload without mounting the repository root, Git data, local dependencies, credentials, or `.env` files. Dependencies come from the image built from the committed lockfile.
+This path requires Docker Engine and Docker Compose v2.20+ on the host. It does not make WSL or macOS execution claims.
 
-When dependencies or Docker build inputs change, rebuild the image:
+### Operate the stack
+
+With `COMPOSE_FILE=compose.stack.yaml` still exported, use literal Compose commands:
 
 ```bash
-COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build backend
+docker compose ps
+docker compose logs --no-color --tail 80
+docker compose up --wait --wait-timeout 180
+docker compose down --remove-orphans
 ```
 
-## Worktrees and port overrides
+The initial baselines are independently healthy at their own ports: frontend on 4200, backend on 3000 (`/health` returns `{"status":"ok"}`), and ai-service on 8000 (`/health`). This is not application-to-application API integration.
 
-Compose project names and host ports must differ when two worktrees run simultaneously. Keep the container port at 3000 and assign a unique loopback host port and project name for each worktree:
+Alternatively, do not export `COMPOSE_FILE` and name the entrypoint explicitly:
 
 ```bash
-COMPOSE_DISABLE_ENV_FILE=1 BACKEND_PORT=13001 docker compose -p backend-feature-a up -d --build
-COMPOSE_DISABLE_ENV_FILE=1 BACKEND_PORT=13002 docker compose -p backend-feature-b up -d --build
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.stack.yaml up -d --build
 ```
 
-Their health URLs are `http://127.0.0.1:13001/health` and `http://127.0.0.1:13002/health`. Stop only the project you started:
+For simultaneous coordinated worktree groups, select a unique Compose project name and all three loopback host ports:
+
+Keep the same port variables for every command, including the second `up --wait`, so Compose does not recreate the stack using default ports:
 
 ```bash
-COMPOSE_DISABLE_ENV_FILE=1 docker compose -p backend-feature-a down --remove-orphans
+export COMPOSE_DISABLE_ENV_FILE=1
+export BACKEND_PORT=13001
+export FRONTEND_PORT=14201
+export AI_SERVICE_PORT=18001
+docker compose -p workspace-task-stack -f compose.stack.yaml up -d --build
+docker compose -p workspace-task-stack -f compose.stack.yaml ps
+docker compose -p workspace-task-stack -f compose.stack.yaml up --wait --wait-timeout 180
+docker compose -p workspace-task-stack -f compose.stack.yaml logs --no-color --tail 80
+docker compose -p workspace-task-stack -f compose.stack.yaml down --remove-orphans
 ```
 
-## Verification
+In PowerShell, set `$env:BACKEND_PORT = "13001"`, `$env:FRONTEND_PORT = "14201"`, and `$env:AI_SERVICE_PORT = "18001"` before the same `docker compose -p ... -f ...` commands. Clear these variables when returning to default ports.
 
-Validate the Compose file and run the same immutable container checks used by CI:
+Create each group as three separate Git worktrees and branches under one parent, for example `workspace-task/frontend`, `workspace-task/backend`, and `workspace-task/ai-service`. Do not move Git worktrees manually and do not share one branch checkout between repositories.
+
+Before returning to the standalone backend workflow, unset `COMPOSE_FILE`; otherwise plain `docker compose` would merge the stack entrypoint unexpectedly:
+
+```bash
+unset COMPOSE_FILE
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml up -d --build
+```
+
+PowerShell equivalent:
+
+```powershell
+Remove-Item Env:COMPOSE_FILE
+$env:COMPOSE_DISABLE_ENV_FILE = "1"
+docker compose -f compose.yaml up -d --build
+```
+
+## Standalone backend development
+
+The standalone backend Compose file remains the primary pull-request coverage and can be used without private sibling checkouts. It mounts only `./src` read-only at `/app/src`; dependencies come from the image built from the committed lockfile.
 
 ```bash
 COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml config --quiet
@@ -76,16 +101,18 @@ python3 -m unittest tests/test_compose_contract.py
 COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml run --build --rm --no-deps backend-check
 ```
 
-`backend-check` has no host mounts. It installs from `package-lock.json` inside the image and runs ESLint, TypeScript type checks, Jest's HTTP health test, and the Nest build.
+`backend-check` has no host mounts and runs ESLint, TypeScript type checks, Jest's HTTP health test, and the Nest build. The stack contract test uses temporary minimal public Compose fixtures, so CI neither checks out private siblings nor uses secrets or write tokens. A full private-sibling integration run is not automatically available to same-repository GitHub Actions.
 
-## Pull requests and CI
+For one standalone runtime, use a unique project and port when needed:
 
-Open pull requests from branches in your fork to the upstream repository's `main` branch and link the relevant issue. Fork users need permission to read the private upstream repository when it is private, plus the fork and pull-request rights granted by the repository owner.
+```bash
+COMPOSE_DISABLE_ENV_FILE=1 BACKEND_PORT=13001 docker compose -p backend-feature-a -f compose.yaml up -d --build
+curl --fail --silent --show-error http://127.0.0.1:13001/health
+COMPOSE_DISABLE_ENV_FILE=1 docker compose -p backend-feature-a -f compose.yaml down --remove-orphans
+```
 
-The workflow is defined for pull requests, pushes to `main`, and manual dispatch. It validates Compose configuration, tests the public Compose contract, runs the full containerized check suite, starts the runtime with `--wait --wait-timeout 180`, probes the exact health response, prints bounded service logs on failure, and always tears down its scoped Compose project. It uses read-only repository permissions and does not use secrets or write tokens.
+## CI and project tracking
 
-CI becomes active only after this workflow is published to GitHub. Configuring a CI status check as a required merge check is a separate repository branch-protection or ruleset decision. The current sole maintainer does not need to require another reviewer.
+The workflow validates standalone Compose configuration, both public Compose contracts, the immutable container checks, and the standalone runtime health endpoint. CI becomes active only after this workflow is published to GitHub; required checks remain a repository ruleset decision.
 
 Project tracking: <https://github.com/users/statick88/projects/9>.
-
-No database, authentication, business APIs, migrations, or other product integrations are configured by this baseline.

@@ -26,6 +26,8 @@ jobs:
         run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml config --quiet
       - name: Test Compose development contract
         run: python3 -m unittest tests/test_compose_contract.py
+      - name: Test three-sibling stack Compose contract
+        run: python3 -m unittest tests/test_stack_compose_contract.py
       - name: Run containerized checks
         run: COMPOSE_DISABLE_ENV_FILE=1 docker compose -f compose.yaml run --build --rm --no-deps backend-check
       - name: Start and probe runtime

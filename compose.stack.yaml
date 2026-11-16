@@ -1,0 +1,6 @@
+# Compose v2.20+ resolves each included file relative to that file's directory.
+# Run this versioned entrypoint from the backend sibling directory.
+include:
+  - path: ./compose.yaml
+  - path: ../frontend/compose.yaml
+  - path: ../ai-service/compose.yaml
