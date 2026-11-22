@@ -1,0 +1,25 @@
+# Use an allowlist so Docker never receives local dependencies, Git metadata, or secrets.
+*
+!package.json
+!package-lock.json
+!eslint.config.mjs
+!jest.config.ts
+!nest-cli.json
+!tsconfig.json
+!tsconfig.build.json
+!src/
+!src/**
+!test/
+!test/**
+
+# Never include credentials, even if accidentally placed under an allowed source directory.
+**/.env
+**/.env.*
+**/secrets
+**/secrets/**
+**/.ssh
+**/.ssh/**
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

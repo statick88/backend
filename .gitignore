@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Local AI onboarding instructions; share separately, never commit.
+/AGENTS.md
